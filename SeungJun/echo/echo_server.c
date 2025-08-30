@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
     // 클라이언트 연결 대기 → 연결되면 정보 저장 + 새 소켓 반환
     Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, MAXLINE,
                 client_port, MAXLINE, 0);
-    // 빼온 정보에서 ip주소 포트 빼옴
+    // 바이너리 주소를 읽기쉬운형태로 반환
     printf("연결됨 (%s, %s)\n", client_hostname, client_port);
     echo(connfd);
     Close(connfd);
