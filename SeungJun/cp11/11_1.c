@@ -5,8 +5,8 @@ int main(int argc, char **argv) {
   // argc: 인수 개수 (프로그램명 포함)
   // argv: 인수 배열
 
-  uint16_t hex_value;      // 입력받은 16진수 값 (호스트 바이트 순서)
-  uint16_t network_value;  // 네트워크 바이트 순서로 변환된 값
+  uint16_t hex_value; // 입력받은 16진수 값 (호스트 바이트 순서)
+  uint16_t network_value; // 네트워크 바이트 순서로 변환된 값
 
   /* 명령행 인자 검사 */
   if (argc != 2) {
