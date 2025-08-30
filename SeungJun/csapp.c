@@ -800,12 +800,15 @@ int open_clientfd(char *hostname, char *port) {
   int clientfd, rc;
   struct addrinfo hints, *listp, *p;
 
-  /* Get a list of potential server addresses */
+  // 힌트 설정 - "이런 조건으로 찾아줘"
   memset(&hints, 0, sizeof(struct addrinfo));
-  hints.ai_socktype = SOCK_STREAM; /* Open a connection */
-  hints.ai_flags = AI_NUMERICSERV; /* ... using a numeric port arg. */
-  hints.ai_flags |= AI_ADDRCONFIG; /* Recommended for connections */
+  hints.ai_socktype = SOCK_STREAM;  // TCP 원함
+  hints.ai_flags = AI_NUMERICSERV;  // 포트는 숫자로
+  hints.ai_flags |= AI_ADDRCONFIG;  // 시스템 설정에 맞게
+
+  // DNS 조회
   if ((rc = getaddrinfo(hostname, port, &hints, &listp)) != 0) {
+    // dns, port, 검색조건, 저장할위치
     fprintf(stderr, "getaddrinfo failed (%s:%s): %s\n", hostname, port,
             gai_strerror(rc));
     return -2;
