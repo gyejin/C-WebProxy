@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "netdb.h": "c",
+        "signal.h": "c",
+        "ctype.h": "c"
+    }
+}
