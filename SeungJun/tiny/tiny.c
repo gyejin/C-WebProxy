@@ -107,15 +107,15 @@ void doit(int fd) // 클라이언트와 연결된 파일 디스크립터를 받�
  *   longmsg: 자세한 에러 설명 (예: "Tiny couldn't find this file")
  */
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
-{
+{                                    // 문자열로 받기때문에 포인터
     char buf[MAXLINE], body[MAXBUF]; // HTTP 응답 헤더용 버퍼와 HTML 본문용 버퍼
 
     /* Build the HTTP response body */
-    sprintf(body, "<html><title>Tiny Error</title>");              // HTML 문서 시작과 제목 태그 생성
-    sprintf(body, "%s<body bgcolor=\"ffffff\">\r\n", body);        // 흰색 배경의 body 태그 추가
-    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);         // "404: Not found" 같은 에러 정보 표시
-    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);        // 상세한 에러 설명과 원인 표시 (단락으로)
-    sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body); // 수평선과 서버 정보를 이탤릭체로 표시
+    sprintf(body, "<html><title>Tiny Error</title>");                     // HTML 문서 시작과 제목 태그 생성
+    sprintf(body, "%s<body bgcolor=\"ffffff\">\r\n", body);               // 흰색 배경의 body 태그 추가
+    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);                // "404: Not found" 같은 에러 정보 표시
+    sprintf(body, "%s<p>%s: %s</p>\r\n", body, longmsg, cause);           // 상세한 에러 설명과 원인 표시 (단락으로)
+    sprintf(body, "%s<hr><em>The Tiny Web server</em></html>\r\n", body); // 수평선과 서버 정보를 이탤릭체로 표시
 
     /* Print the HTTP response */
     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg); // HTTP 응답 시작 라인 생성 (예: "HTTP/1.0 404 Not found")
@@ -126,6 +126,12 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
             (int)strlen(body));         // 본문 크기를 바이트 단위로 지정하고 헤더 끝을 나타내는 빈 줄 추가
     Rio_writen(fd, buf, strlen(buf));   // Content-Length 헤더와 빈 줄을 클라이언트에게 전송
     Rio_writen(fd, body, strlen(body)); // HTML 본문 내용을 클라이언트에게 전송
+
+    /*
+    여기서 헤더는 한줄씩 보내는 이유는
+    1. 직관성
+    2. MAXLINE은 MAXBUF만큼 크지않다
+    */
 }
 
 /*
@@ -211,13 +217,14 @@ void serve_static(int fd, char *filename, int filesize)
     sprintf(buf, "%sConnection: close\r\n", buf);              // 연결을 닫을 것임을 클라이언트에게 알림
     sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);   // 전송할 파일의 크기를 바이트 단위로 명시
     sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype); // MIME 타입 지정하고 헤더 끝을 나타내는 빈 줄 추가
-    Rio_writen(fd, buf, strlen(buf));                          // 생성된 HTTP 응답 헤더를 클라이언트에게 전송
-    printf("Response headers:\n");                             // 디버깅용: 서버 콘솔에 응답 헤더 출력 시작을 알림
-    printf("%s", buf);                                         // 생성된 응답 헤더를 서버 콘솔에 출력
+    // 비효율적인 코드맞음. 학습목표
+    Rio_writen(fd, buf, strlen(buf)); // 생성된 HTTP 응답 헤더를 클라이언트에게 전송
+    printf("Response headers:\n");    // 디버깅용: 서버 콘솔에 응답 헤더 출력 시작을 알림
+    printf("%s", buf);                // 생성된 응답 헤더를 서버 콘솔에 출력
 
     /* Send response body to client */
-    srcfd = Open(filename, O_RDONLY, 0);                        // 정적 파일을 읽기 전용으로 열기
-    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 메모리에 맵핑 (효율적인 파일 읽기)
+    srcfd = Open(filename, O_RDONLY, 0);                        // 정적 파일을 읽기 전용으로 열기 파일디스크립터
+    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 메모리에 맵핑 (추가적인 버퍼를 생성할 필요x)
     Close(srcfd);                   // 파일 디스크립터는 메모리 맵핑 후에는 불필요하므로 즉시 닫기
     Rio_writen(fd, srcp, filesize); // 메모리에 맵핑된 파일 내용을 클라이언트에게 전송
     Munmap(srcp, filesize);         // 메모리 맵핑 해제 (메모리 누수 방지)
