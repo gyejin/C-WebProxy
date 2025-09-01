@@ -145,12 +145,19 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
 void read_requesthdrs(rio_t *rp)
 {
     char buf[MAXLINE]; // 한 줄씩 헤더를 읽어올 버퍼
+    ssize_t n;         // EOF 혹은 에러를 만났을 경우 사용할 변수
 
-    Rio_readlineb(rp, buf, MAXLINE); // 첫 번째 헤더 라인을 읽음 (예: "Host: www.example.com")
+    n = Rio_readlineb(rp, buf, MAXLINE); // 첫 번째 헤더 라인을 읽음 (예: "Host: www.example.com")
     while (strcmp(buf, "\r\n"))
-    {                                    // 빈 줄("\r\n")을 만날 때까지 반복 (빈 줄은 헤더의 끝을 의미)
-        Rio_readlineb(rp, buf, MAXLINE); // 다음 헤더 라인을 읽음
-        printf("%s", buf);               // 읽은 헤더를 서버 콘솔에 출력 (디버깅 목적)
+    {                                        // 빈 줄("\r\n")을 만날 때까지 반복 (빈 줄은 헤더의 끝을 의미)
+        n = Rio_readlineb(rp, buf, MAXLINE); // 다음 헤더 라인을 읽음
+        if (n <= 0)
+        {
+            printf("Read failed or EOF\n");
+            break;
+        }
+
+        printf("%s", buf); // 읽은 헤더를 서버 콘솔에 출력 (디버깅 목적)
     }
     return; // 모든 헤더를 읽었으면 함수 종료
 }
@@ -243,8 +250,8 @@ void serve_static(int fd, char *filename, int filesize)
  */
 void get_filetype(char *filename, char *filetype)
 {
-    if (strstr(filename, ".html"))     // 파일명에 ".html"이 포함되어 있는지 확인
-        strcpy(filetype, "text/html"); // HTML 파일의 MIME 타입 설정
+    if (strstr(filename, ".html"))                    // 파일명에 ".html"이 포함되어 있는지 확인
+        strcpy(filetype, "text/html; charset=utf-8"); // HTML 파일의 MIME 타입 설정
     else if (strstr(filename, ".mov"))
         strcpy(filetype, "video/mov");
     else if (strstr(filename, ".gif"))  // 파일명에 ".gif"가 포함되어 있는지 확인
