@@ -223,11 +223,16 @@ void serve_static(int fd, char *filename, int filesize)
     printf("%s", buf);                // 생성된 응답 헤더를 서버 콘솔에 출력
 
     /* Send response body to client */
-    srcfd = Open(filename, O_RDONLY, 0);                        // 정적 파일을 읽기 전용으로 열기 파일디스크립터
-    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 메모리에 맵핑 (추가적인 버퍼를 생성할 필요x)
+    srcfd = Open(filename, O_RDONLY, 0); // 정적 파일을 읽기 전용으로 열기 파일디스크립터
+    srcp = Malloc(filesize);             // filesize만큼 malloc
+    Rio_readn(srcfd, srcp, filesize);    // srcfd의 파일을 srcp에 파일사이즈만큼 읽음
+
+    // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    // 파일을 메모리에 맵핑 (추가적인 버퍼를 생성할 필요x)
     Close(srcfd);                   // 파일 디스크립터는 메모리 맵핑 후에는 불필요하므로 즉시 닫기
     Rio_writen(fd, srcp, filesize); // 메모리에 맵핑된 파일 내용을 클라이언트에게 전송
-    Munmap(srcp, filesize);         // 메모리 맵핑 해제 (메모리 누수 방지)
+    free(srcp);
+    // Munmap(srcp, filesize);         // 메모리 맵핑 해제 (메모리 누수 방지)
 }
 
 /*
