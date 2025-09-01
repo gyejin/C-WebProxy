@@ -6,17 +6,23 @@
 
 int main(void)
 {
-    char *buf, *p;
+    char *buf, *p, *n11, *n22;
     char arg1[MAXLINE], arg2[MAXLINE], content[MAXLINE];
     int n1 = 0, n2 = 0;
 
     /* Extract the two arguments */
-    if ((buf = getenv("QUERY_STRING")) != NULL)
+    if ((buf = getenv("QUERY_STRING")) != NULL) // 환경변수에서 데이터
     {
         p = strchr(buf, '&');
         *p = '\0';
         strcpy(arg1, buf);
         strcpy(arg2, p + 1);
+        n11 = strchr(arg1, '=');
+        n22 = strchr(arg2, '=');
+
+        strcpy(arg1, n11 + 1);
+        strcpy(arg2, n22 + 1);
+
         n1 = atoi(arg1);
         n2 = atoi(arg2);
     }

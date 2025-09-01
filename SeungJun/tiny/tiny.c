@@ -145,12 +145,19 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
 void read_requesthdrs(rio_t *rp)
 {
     char buf[MAXLINE]; // 한 줄씩 헤더를 읽어올 버퍼
+    ssize_t n;         // EOF 혹은 에러를 만났을 경우 사용할 변수
 
-    Rio_readlineb(rp, buf, MAXLINE); // 첫 번째 헤더 라인을 읽음 (예: "Host: www.example.com")
+    n = Rio_readlineb(rp, buf, MAXLINE); // 첫 번째 헤더 라인을 읽음 (예: "Host: www.example.com")
     while (strcmp(buf, "\r\n"))
-    {                                    // 빈 줄("\r\n")을 만날 때까지 반복 (빈 줄은 헤더의 끝을 의미)
-        Rio_readlineb(rp, buf, MAXLINE); // 다음 헤더 라인을 읽음
-        printf("%s", buf);               // 읽은 헤더를 서버 콘솔에 출력 (디버깅 목적)
+    {                                        // 빈 줄("\r\n")을 만날 때까지 반복 (빈 줄은 헤더의 끝을 의미)
+        n = Rio_readlineb(rp, buf, MAXLINE); // 다음 헤더 라인을 읽음
+        if (n <= 0)
+        {
+            printf("Read failed or EOF\n");
+            break;
+        }
+
+        printf("%s", buf); // 읽은 헤더를 서버 콘솔에 출력 (디버깅 목적)
     }
     return; // 모든 헤더를 읽었으면 함수 종료
 }
@@ -223,11 +230,16 @@ void serve_static(int fd, char *filename, int filesize)
     printf("%s", buf);                // 생성된 응답 헤더를 서버 콘솔에 출력
 
     /* Send response body to client */
-    srcfd = Open(filename, O_RDONLY, 0);                        // 정적 파일을 읽기 전용으로 열기 파일디스크립터
-    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 메모리에 맵핑 (추가적인 버퍼를 생성할 필요x)
+    srcfd = Open(filename, O_RDONLY, 0); // 정적 파일을 읽기 전용으로 열기 파일디스크립터
+    srcp = Malloc(filesize);             // filesize만큼 malloc
+    Rio_readn(srcfd, srcp, filesize);    // srcfd의 파일을 srcp에 파일사이즈만큼 읽음
+
+    // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    // 파일을 메모리에 맵핑 (추가적인 버퍼를 생성할 필요x)
     Close(srcfd);                   // 파일 디스크립터는 메모리 맵핑 후에는 불필요하므로 즉시 닫기
     Rio_writen(fd, srcp, filesize); // 메모리에 맵핑된 파일 내용을 클라이언트에게 전송
-    Munmap(srcp, filesize);         // 메모리 맵핑 해제 (메모리 누수 방지)
+    free(srcp);
+    // Munmap(srcp, filesize);         // 메모리 맵핑 해제 (메모리 누수 방지)
 }
 
 /*
@@ -238,8 +250,10 @@ void serve_static(int fd, char *filename, int filesize)
  */
 void get_filetype(char *filename, char *filetype)
 {
-    if (strstr(filename, ".html"))      // 파일명에 ".html"이 포함되어 있는지 확인
-        strcpy(filetype, "text/html");  // HTML 파일의 MIME 타입 설정
+    if (strstr(filename, ".html"))                    // 파일명에 ".html"이 포함되어 있는지 확인
+        strcpy(filetype, "text/html; charset=utf-8"); // HTML 파일의 MIME 타입 설정
+    else if (strstr(filename, ".mov"))
+        strcpy(filetype, "video/mov");
     else if (strstr(filename, ".gif"))  // 파일명에 ".gif"가 포함되어 있는지 확인
         strcpy(filetype, "image/gif");  // GIF 이미지의 MIME 타입 설정
     else if (strstr(filename, ".png"))  // 파일명에 ".png"가 포함되어 있는지 확인
