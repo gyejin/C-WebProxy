@@ -238,8 +238,10 @@ void serve_static(int fd, char *filename, int filesize)
  */
 void get_filetype(char *filename, char *filetype)
 {
-    if (strstr(filename, ".html"))      // 파일명에 ".html"이 포함되어 있는지 확인
-        strcpy(filetype, "text/html");  // HTML 파일의 MIME 타입 설정
+    if (strstr(filename, ".html"))     // 파일명에 ".html"이 포함되어 있는지 확인
+        strcpy(filetype, "text/html"); // HTML 파일의 MIME 타입 설정
+    else if (strstr(filename, ".mov"))
+        strcpy(filetype, "video/mov");
     else if (strstr(filename, ".gif"))  // 파일명에 ".gif"가 포함되어 있는지 확인
         strcpy(filetype, "image/gif");  // GIF 이미지의 MIME 타입 설정
     else if (strstr(filename, ".png"))  // 파일명에 ".png"가 포함되어 있는지 확인
