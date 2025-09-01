@@ -57,7 +57,7 @@ void doit(int fd) // 클라이언트와 연결된 파일 디스크립터를 받�
     printf("Request headers:\n");                  // 디버깅용: 요청 헤더 출력 시작을 알림
     printf("%s", buf);                             // 읽어온 요청 라인을 서버 콘솔에 출력
     sscanf(buf, "%s %s %s", method, uri, version); // 요청 라인을 method, uri, version으로 파싱
-    if (strcasecmp(method, "GET"))
+    if (strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))
     { // 요청 메소드가 GET이 아닌 경우 (대소문자 구분 없이 비교)
         clienterror(fd, method, "501", "Not implemented", "Tiny does not implement this method");
         // 501 에러 응답 전송 Tiny 서버는 GET만 지원한다는 메시지
