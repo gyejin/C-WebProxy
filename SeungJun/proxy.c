@@ -38,7 +38,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
         exit(1);
     }
-
     listenfd = Open_listenfd(argv[1]);
     while (1)
     {
@@ -86,7 +85,7 @@ void read_requesthdrs(rio_t *rp)
 {
     char buf[MAXLINE];
     ssize_t n;
-    printf("[read_requesthdrs]: before while");
+    printf("[read_requesthdrs]: before while\n");
     n = Rio_readlineb(rp, buf, MAXLINE);
     while (strcmp(buf, "\r\n"))
     {
@@ -99,7 +98,7 @@ void read_requesthdrs(rio_t *rp)
 
         printf("%s", buf);
     }
-    printf("[read_requesthdrs]: after while");
+    printf("[read_requesthdrs]: after while\n");
     return;
 }
 
@@ -145,10 +144,10 @@ void parse_uri(char *uri, char *hostname, char *port, char *path)
         strcpy(hostname, host_start); // hostname 복사
         strcpy(port, "80");           // 기본 HTTP 포트
     }
-    printf("[parse uri] uri: %s", uri);
-    printf("[parse uri] host: %s", hostname);
-    printf("[parse uri] port: %s", port);
-    printf("[parse uri] path: %s", path);
+    printf("[parse uri] uri: %s\n", uri);
+    printf("[parse uri] host: %s\n", hostname);
+    printf("[parse uri] port: %s\n", port);
+    printf("[parse uri] path: %s\n", path);
     // http://localhost:9999/home.html
     // 나는 클라이언트다 나는클라이언트다.
 }
