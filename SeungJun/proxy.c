@@ -20,7 +20,7 @@ static const char *user_agent_hdr =
 */
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
-int parse_uri(char *uri, char *filename, char *cgiargs);
+void parse_uri(char *uri, char *filename, char *port, char *cgiargs);
 int connect_server(char *host, char *port);
 
 int main(int argc, char **argv)
@@ -74,6 +74,8 @@ void doit(int fd)
     }
 
     read_requesthdrs(&rio);
+
+    // connect_server(host, port)
 }
 void read_requesthdrs(rio_t *rp)
 {
@@ -97,10 +99,48 @@ void read_requesthdrs(rio_t *rp)
 
 int connect_server(char *host, char *port)
 {
-    int clientfd; // 생성할 fd
-    char buf[MAXLINE];
+    return Open_clientfd(host, port);
+}
 
-    clientfd = Open_clientfd(host, port); // 해당주소와포트를 위한 fd생성
+void parse_uri(char *uri, char *hostname, char *port, char *path)
+{
+    char *host_start, *port_start, *path_start; // 포인터
+    char uri_copy[MAXLINE];                     // 원본보존
 
-    return clientfd;
+    strcpy(uri_copy, uri);
+
+    host_start = uri_copy + 7; // "http://" 길이만큼 건너뛰기
+
+    path_start = strchr(host_start, '/');
+
+    if (path_start)
+    {
+        // path가 있는 경우
+        strcpy(path, ".");
+        strcat(path, path_start);
+        *path_start = '\0'; // host 부분만 남기기 위해 null 종료
+    }
+    else
+    {
+        // path가 없는 경우 (http://localhost:9999)
+        strcpy(path, "./"); // 기본 path
+    }
+
+    port_start = strchr(host_start, ':');
+
+    if (port_start)
+    {
+        // 포트가 있는 경우
+        *port_start = '\0';           // host와 port 분리
+        strcpy(hostname, host_start); // hostname 복사
+        strcpy(port, port_start + 1); // port 복사 (':'를 제외하고)
+    }
+    else
+    {
+        // 포트가 없는 경우
+        strcpy(hostname, host_start); // hostname 복사
+        strcpy(port, "80");           // 기본 HTTP 포트
+    }
+    // http://localhost:9999/home.html
+    // 나는 클라이언트다 나는클라이언트다.
 }
