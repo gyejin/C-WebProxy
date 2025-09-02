@@ -16,6 +16,21 @@ void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
+char *get_timestamp() // 시간출력함수
+{
+    static char timestamp[20]; // "HH:MM:SS.mmm" + null terminator
+    struct timeval tv;
+    struct tm *tm_info;
+
+    gettimeofday(&tv, NULL);
+    tm_info = localtime(&tv.tv_sec);
+
+    snprintf(timestamp, sizeof(timestamp), "%02d:%02d:%02d.%03d", tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec,
+             (int)(tv.tv_usec / 1000)); // 마이크로초 → 밀리초
+
+    return timestamp;
+}
+
 int main(int argc, char **argv)
 {
     int listenfd, connfd;
@@ -50,23 +65,33 @@ void doit(int fd) // 클라이언트와 연결된 파일 디스크립터를 받�
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE]; // HTTP 요청을 파싱할 버퍼들
     char filename[MAXLINE], cgiargs[MAXLINE];                           // 파일명과 CGI 인자들을 저장할 버퍼
     rio_t rio;                                                          // Robust I/O를 위한 구조체
+    printf("=====[%s] doit 시작=====\n", get_timestamp());
 
     /* Read request line and headers */
-    Rio_readinitb(&rio, fd);                       // 파일 디스크립터를 rio 구조체와 연결하여 버퍼링된 입력 초기화
-    Rio_readlineb(&rio, buf, MAXLINE);             // 클라이언트로부터 첫 번째 요청 라인을 읽음
+    Rio_readinitb(&rio, fd); // 파일 디스크립터를 rio 구조체와 연결하여 버퍼링된 입력 초기화
+    if (!Rio_readlineb(&rio, buf, MAXLINE))
+    {
+        printf("=====[%s] Rio_readlineb 실패 (연결 끊김)=====\n", get_timestamp());
+        return;
+    }
+    // Rio_readlineb(&rio, buf, MAXLINE); // 클라이언트로부터 첫 번째 요청 라인을 읽음
+
     printf("Request headers:\n");                  // 디버깅용: 요청 헤더 출력 시작을 알림
     printf("%s", buf);                             // 읽어온 요청 라인을 서버 콘솔에 출력
     sscanf(buf, "%s %s %s", method, uri, version); // 요청 라인을 method, uri, version으로 파싱
-    if (strcasecmp(method, "GET"))
+    if (strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))
     { // 요청 메소드가 GET이 아닌 경우 (대소문자 구분 없이 비교)
         clienterror(fd, method, "501", "Not implemented", "Tiny does not implement this method");
         // 501 에러 응답 전송 Tiny 서버는 GET만 지원한다는 메시지
         return; // 함수 종료
     }
     read_requesthdrs(&rio); // 나머지 HTTP 요청 헤더들을 모두 읽어서 처리
+    printf("=====[%s]requesthdrs함수 완료=====\n", get_timestamp());
 
     /* Parse URI from GET request */
     is_static = parse_uri(uri, filename, cgiargs); // URI를 파싱하여 정적/동적 구분, 파일명과 CGI 인자 추출
+    printf("=====[%s]parse_uri함수 완료=====\nuri=%s, filename=%s, cgiargs=%s\n", get_timestamp(), uri, filename,
+           cgiargs);
     if (stat(filename, &sbuf) < 0)
     { // 요청된 파일이 존재하는지 확인 (stat 시스템 콜 사용)
         clienterror(fd, filename, "404", "Not found", "Tiny couldn't find this file");
@@ -83,6 +108,7 @@ void doit(int fd) // 클라이언트와 연결된 파일 디스크립터를 받�
             return; // 함수 종료
         }
         serve_static(fd, filename, sbuf.st_size); // 정적 파일을 클라이언트에게 전송
+        printf("=====[%s]serve_static함수 완료=====\n", get_timestamp());
     }
     else
     { /* Serve dynamic content */ // 동적 컨텐츠 요청인 경우
@@ -94,7 +120,9 @@ void doit(int fd) // 클라이언트와 연결된 파일 디스크립터를 받�
             return; // 함수 종료
         }
         serve_dynamic(fd, filename, cgiargs); // CGI 프로그램을 실행하여 동적 컨텐츠 생성 및 전송
+        printf("=====[%s]serve_dynamic함수 완료=====\n", get_timestamp());
     }
+    printf("[%s] doit 끝\n", get_timestamp());
 }
 
 /*
