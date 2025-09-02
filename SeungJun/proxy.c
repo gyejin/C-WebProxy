@@ -24,12 +24,13 @@ void parse_uri(char *uri, char *filename, char *port, char *cgiargs);
 int connect_server(char *host, char *port);
 void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char *host, char *port);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void sigchild_handler(int sig);
 
 int main(int argc, char **argv)
 {
     int listenfd, connfd;
     char hostname[MAXLINE], port[MAXLINE];
-    socklen_t clientlen;
+    socklen_t clientlen = sizeof(struct sockaddr_storage);
     struct sockaddr_storage clientaddr;
 
     /* Check command line args */
@@ -38,16 +39,20 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
         exit(1);
     }
+    Signal(SIGCHLD, sigchild_handler); // 한번해놓으면 자식이죽을때마다 실행
     listenfd = Open_listenfd(argv[1]);
     while (1)
     {
-        clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        // line:netp:tiny:accept
-        Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-        printf("Accepted connection from (%s, %s)\n", hostname, port);
-        doit(connfd);  // line:netp:tiny:doit
-        Close(connfd); // line:netp:tiny:close
+        if (Fork() == 0)
+        {
+            Close(listenfd);
+            Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
+            printf("Accepted connection from (%s, %s)\n", hostname, port);
+            doit(connfd);  // line:netp:tiny:doit
+            Close(connfd); // line:netp:tiny:close
+        }
+        Close(connfd);
     }
 }
 
@@ -202,4 +207,12 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     1. 직관성
     2. MAXLINE은 MAXBUF만큼 크지않다
     */
+}
+
+void sigchild_handler(int sig)
+{ // 왜 매개변수 안받음?
+    while (waitpid(-1, 0, WNOHANG) > 0)
+    { // 실제로 좀비 프로세스가 정리되었다는 뜻
+    }
+    return;
 }
