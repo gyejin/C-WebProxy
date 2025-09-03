@@ -97,11 +97,21 @@ void doit(int clientfd)
 
     read_requesthdrs(&rio);
     parse_uri(uri, host, port, path);
+    cache_entry_t *cached = find_cache(host, path);
+
+    if (cached)
+    {
+        Rio_writen(clientfd, cached->content, cached->content_size);
+    }
+    else
+    {
+        proxyfd = connect_server(host, port); // 서버와 프록시연결
+        request_and_serve(proxyfd, clientfd, method, path, host, port);
+        Close(proxyfd);
+    }
     // 캐시작업 여기서
     // 캐시있는지 확인
     // 없으면 밑 두줄
-    proxyfd = connect_server(host, port); // 서버와 프록시연결
-    request_and_serve(proxyfd, clientfd, method, path, host, port);
 }
 void read_requesthdrs(rio_t *rp)
 {
@@ -122,6 +132,24 @@ void read_requesthdrs(rio_t *rp)
     }
     printf("[read_requesthdrs]: after while\n");
     return;
+}
+cache_entry_t *find_cache(char *host, char *path)
+{
+    if (!cache_head)
+        return NULL;
+    char key[MAXLINE];
+    snprintf(key, MAXLINE, "%s%s", host, path);
+
+    cache_entry_t *cache = cache_head;
+    while (cache != NULL)
+    {
+        if (strcmp(cache->key, key) == 0)
+            return cache;
+
+        cache = cache->next;
+    }
+
+    return NULL;
 }
 
 int connect_server(char *host, char *port)
