@@ -3,6 +3,20 @@
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000 // 약 1MB
 #define MAX_OBJECT_SIZE 102400 // 100kb
+// 캐시타입, 캐시크기가 작고 중간삭제할일이없음, 큐처럼사용할거임
+typedef struct cache_entry
+{
+    char key[MAXLINE];   // 캐시 키
+    char *content;       // 실제 데이터
+    size_t content_size; // 데이터 크기
+    // time_t timestamp;         // 캐시된 시간
+    struct cache_entry *next; // 연결 리스트용
+} cache_entry_t;
+
+static cache_entry_t *cache_head = NULL; // 연결리스트의 헤드
+
+static size_t total_cache_size = 0; // 현재 캐시 전체 크기
+static int cache_count = 0;         // 디버깅용
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr =
@@ -25,13 +39,18 @@ int connect_server(char *host, char *port);
 void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char *host, char *port);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 void sigchild_handler(int sig);
+void add_cache(char *host, char *path, char *cached_data, size_t c_size);
+void remove_cache();
+cache_entry_t *find_cache(char *host, char *path);
+void *thread(void *vargp);
 
 int main(int argc, char **argv)
 {
-    int listenfd, connfd;
+    int listenfd, *connfd;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen = sizeof(struct sockaddr_storage);
     struct sockaddr_storage clientaddr;
+    pthread_t tid;
 
     /* Check command line args */
     if (argc != 2)
@@ -43,17 +62,22 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(argv[1]);
     while (1)
     {
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        if (Fork() == 0)
-        {
-            Close(listenfd);
-            Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-            printf("Accepted connection from (%s, %s)\n", hostname, port);
-            doit(connfd);  // line:netp:tiny:doit
-            Close(connfd); // line:netp:tiny:close
-        }
-        Close(connfd);
+        connfd = Malloc(sizeof(int));
+        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
+        printf("Accepted connection from (%s, %s)\n", hostname, port);
+        Pthread_create(&tid, NULL, thread, connfd);
     }
+}
+void *thread(void *vargp)
+{
+    int connfd = *((int *)vargp);
+    Pthread_detach(pthread_self());
+    Free(vargp);
+
+    doit(connfd);
+    Close(connfd);
+    return NULL;
 }
 
 void doit(int clientfd)
@@ -83,8 +107,22 @@ void doit(int clientfd)
 
     read_requesthdrs(&rio);
     parse_uri(uri, host, port, path);
-    proxyfd = connect_server(host, port); // 서버와 프록시연결
-    request_and_serve(proxyfd, clientfd, method, path, host, port);
+    cache_entry_t *cached = find_cache(host, path);
+
+    if (cached)
+    {
+        printf("======cached data========\n");
+        Rio_writen(clientfd, cached->content, cached->content_size);
+    }
+    else
+    {
+        proxyfd = connect_server(host, port); // 서버와 프록시연결
+        request_and_serve(proxyfd, clientfd, method, path, host, port);
+        Close(proxyfd);
+    }
+    // 캐시작업 여기서
+    // 캐시있는지 확인
+    // 없으면 밑 두줄
 }
 void read_requesthdrs(rio_t *rp)
 {
@@ -162,8 +200,10 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
     // 서버에 요청하고
     // 클라이언트로 서브하는 과정
     char buf[MAXLINE];
+    char cached_data[MAX_OBJECT_SIZE]; // 캐시에 저장할 데이터
+    size_t c_size = 0;                 // 데이터크기
     int n;
-
+    // 요청헤더
     sprintf(buf, "%s %s HTTP/1.0\r\n", method, path);
     Rio_writen(proxyfd, buf, strlen(buf));
     sprintf(buf, "Host: %s:%s\r\n", host, port);
@@ -173,12 +213,23 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
     Rio_writen(proxyfd, buf, strlen(buf));
     sprintf(buf, "Proxy-Connection: close\r\n\r\n");
     Rio_writen(proxyfd, buf, strlen(buf));
-    // 헤더
 
     while ((n = Rio_readn(proxyfd, buf, MAXLINE)) > 0)
     {
+        if (c_size + n <= MAX_OBJECT_SIZE) // 버퍼오버플로우 조심
+        {
+            memcpy(cached_data + c_size, buf, n);
+            c_size += n;
+        }
+        else
+        {
+            c_size = MAX_OBJECT_SIZE + 1; // 캐시 불가능 표시
+        }
         Rio_writen(clientfd, buf, n);
     }
+
+    if (c_size <= MAX_OBJECT_SIZE)                  // 사이즈가 1MB 미만이면
+        add_cache(host, path, cached_data, c_size); // 캐시추가
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
@@ -215,4 +266,82 @@ void sigchild_handler(int sig)
     { // 실제로 좀비 프로세스가 정리되었다는 뜻
     }
     return;
+}
+void add_cache(char *host, char *path, char *cached_data, size_t c_size)
+{
+    // 용량검증
+    while (total_cache_size + c_size > MAX_CACHE_SIZE)
+    {
+        remove_cache();
+    }
+
+    // 캐시 객체만들기
+    cache_entry_t *new_cache = malloc(sizeof(cache_entry_t)); // 엔트리선언
+    if (!new_cache)                                           // malloc 실패
+        return;
+    snprintf(new_cache->key, MAXLINE, "%s%s", host, path);
+    new_cache->content = malloc(c_size);
+    if (!new_cache->content) // malloc 실패
+    {
+        free(new_cache);
+        return;
+    }
+    memcpy(new_cache->content, cached_data, c_size);
+    new_cache->content_size = c_size;
+
+    // 캐시연결하기
+    new_cache->next = cache_head;
+    cache_head = new_cache;
+    // 전역변수 업데이트하기
+    total_cache_size += c_size;
+    cache_count += 1;
+}
+
+void remove_cache()
+{
+    if (!cache_head)
+        return; // 빈 리스트
+
+    // 노드가 하나뿐인 경우
+    if (!cache_head->next)
+    {
+        total_cache_size -= cache_head->content_size;
+        cache_count -= 1;
+        free(cache_head->content);
+        free(cache_head);
+        cache_head = NULL;
+        return;
+    }
+
+    cache_entry_t *last_prev = NULL;
+    cache_entry_t *last = cache_head;
+    while (last->next != NULL)
+    {
+        last_prev = last;
+        last = last->next;
+    }
+
+    total_cache_size -= last->content_size;
+    cache_count -= 1;
+    last_prev->next = NULL;
+    free(last->content);
+    free(last);
+}
+cache_entry_t *find_cache(char *host, char *path)
+{
+    if (!cache_head)
+        return NULL;
+    char key[MAXLINE];
+    snprintf(key, MAXLINE, "%s%s", host, path);
+
+    cache_entry_t *cache = cache_head;
+    while (cache != NULL)
+    {
+        if (strcmp(cache->key, key) == 0)
+            return cache;
+
+        cache = cache->next;
+    }
+
+    return NULL;
 }
