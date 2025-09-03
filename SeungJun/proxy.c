@@ -42,13 +42,15 @@ void sigchild_handler(int sig);
 void add_cache(char *host, char *path, char *cached_data, size_t c_size);
 void remove_cache();
 cache_entry_t *find_cache(char *host, char *path);
+void *thread(void *vargp);
 
 int main(int argc, char **argv)
 {
-    int listenfd, connfd;
+    int listenfd, *connfd;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen = sizeof(struct sockaddr_storage);
     struct sockaddr_storage clientaddr;
+    pthread_t tid;
 
     /* Check command line args */
     if (argc != 2)
@@ -60,17 +62,22 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(argv[1]);
     while (1)
     {
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        if (Fork() == 0)
-        {
-            Close(listenfd);
-            Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-            printf("Accepted connection from (%s, %s)\n", hostname, port);
-            doit(connfd);
-            Close(connfd);
-        }
-        Close(connfd);
+        connfd = Malloc(sizeof(int));
+        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
+        printf("Accepted connection from (%s, %s)\n", hostname, port);
+        Pthread_create(&tid, NULL, thread, connfd);
     }
+}
+void *thread(void *vargp)
+{
+    int connfd = *((int *)vargp);
+    Pthread_detach(pthread_self());
+    Free(vargp);
+
+    doit(connfd);
+    Close(connfd);
+    return NULL;
 }
 
 void doit(int clientfd)
@@ -104,6 +111,7 @@ void doit(int clientfd)
 
     if (cached)
     {
+        printf("======cached data========\n");
         Rio_writen(clientfd, cached->content, cached->content_size);
     }
     else
