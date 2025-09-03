@@ -14,9 +14,9 @@ typedef struct cache_entry
 } cache_entry_t;
 
 static cache_entry_t *cache_head = NULL; // 연결리스트의 헤드
-static cache_entry_t *cache_tail = NULL; // lru 삭제용 꼬리
-static size_t total_cache_size = 0;      // 현재 캐시 전체 크기
-static int cache_count = 0;              // 디버깅용
+
+static size_t total_cache_size = 0; // 현재 캐시 전체 크기
+static int cache_count = 0;         // 디버깅용
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr =
@@ -63,8 +63,8 @@ int main(int argc, char **argv)
             Close(listenfd);
             Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
             printf("Accepted connection from (%s, %s)\n", hostname, port);
-            doit(connfd);  // line:netp:tiny:doit
-            Close(connfd); // line:netp:tiny:close
+            doit(connfd);
+            Close(connfd);
         }
         Close(connfd);
     }
@@ -241,11 +241,17 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
 
 void add_cache(char *host, char *path, char *cached_data, size_t c_size)
 {
+    // 용량검증
+    while (total_cache_size + c_size > MAX_CACHE_SIZE)
+    {
+        remove_cache();
+    }
+
+    // 캐시 객체만들기
     cache_entry_t *new_cache = malloc(sizeof(cache_entry_t)); // 엔트리선언
     if (!new_cache)                                           // malloc 실패
         return;
     snprintf(new_cache->key, MAXLINE, "%s%s", host, path);
-
     new_cache->content = malloc(c_size);
     if (!new_cache->content) // malloc 실패
     {
@@ -255,34 +261,39 @@ void add_cache(char *host, char *path, char *cached_data, size_t c_size)
     memcpy(new_cache->content, cached_data, c_size);
     new_cache->content_size = c_size;
 
+    // 캐시연결하기
+    new_cache->next = cache_head;
+    cache_head = new_cache;
+    // 전역변수 업데이트하기
+    total_cache_size += c_size;
+    cache_count += 1;
+}
+
+void remove_cache()
+{
     if (!cache_head)
+        return; // 빈 리스트
+
+    // 노드가 하나뿐인 경우
+    if (!cache_head->next)
     {
-        new_cache->next = NULL;
-        cache_head = new_cache;
-        cache_tail = new_cache;
-    }
-    else
-    {
-        new_cache->next = cache_head;
-        cache_head = new_cache;
+        free(cache_head->content);
+        free(cache_head);
+        cache_head = NULL;
+        return;
     }
 
-    // if (cache_head == NULL)
-    // {
-    //     cache_head = new_cache;
-    // }
-    // else
-    // {
-    //     cache_entry_t *last_cache = NULL;
-    //     cache_entry_t *head_cache = cache_head;
-    //     while (head_cache != NULL)
-    //     {
-    //         last_cache = head_cache;
-    //         head_cache = head_cache->next;
-    //     }
+    cache_entry_t *last_prev = NULL;
+    cache_entry_t *last = cache_head;
+    while (last->next != NULL)
+    {
+        last_prev = last;
+        last = last->next;
+    }
 
-    //     last_cache->next = new_cache;
-    // }
+    last_prev->next = NULL;
+    free(last->content);
+    free(last);
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
