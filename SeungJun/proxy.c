@@ -39,6 +39,9 @@ int connect_server(char *host, char *port);
 void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char *host, char *port);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 void sigchild_handler(int sig);
+void add_cache(char *host, char *path, char *cached_data, size_t c_size);
+void remove_cache();
+cache_entry_t *find_cache(char *host, char *path);
 
 int main(int argc, char **argv)
 {
@@ -133,24 +136,6 @@ void read_requesthdrs(rio_t *rp)
     printf("[read_requesthdrs]: after while\n");
     return;
 }
-cache_entry_t *find_cache(char *host, char *path)
-{
-    if (!cache_head)
-        return NULL;
-    char key[MAXLINE];
-    snprintf(key, MAXLINE, "%s%s", host, path);
-
-    cache_entry_t *cache = cache_head;
-    while (cache != NULL)
-    {
-        if (strcmp(cache->key, key) == 0)
-            return cache;
-
-        cache = cache->next;
-    }
-
-    return NULL;
-}
 
 int connect_server(char *host, char *port)
 {
@@ -207,8 +192,8 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
     // 서버에 요청하고
     // 클라이언트로 서브하는 과정
     char buf[MAXLINE];
-    char cached_data[MAX_OBJECT_SIZE];
-    size_t c_size = 0;
+    char cached_data[MAX_OBJECT_SIZE]; // 캐시에 저장할 데이터
+    size_t c_size = 0;                 // 데이터크기
     int n;
     // 요청헤더
     sprintf(buf, "%s %s HTTP/1.0\r\n", method, path);
@@ -239,6 +224,41 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
         add_cache(host, path, cached_data, c_size); // 캐시추가
 }
 
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
+{                                    // 문자열로 받기때문에 포인터
+    char buf[MAXLINE], body[MAXBUF]; // HTTP 응답 헤더용 버퍼와 HTML 본문용 버퍼
+
+    /* Build the HTTP response body */
+    sprintf(body, "<html><title>Tiny Error</title>");                     // HTML 문서 시작과 제목 태그 생성
+    sprintf(body, "%s<body bgcolor=\"ffffff\">\r\n", body);               // 흰색 배경의 body 태그 추가
+    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);                // "404: Not found" 같은 에러 정보 표시
+    sprintf(body, "%s<p>%s: %s</p>\r\n", body, longmsg, cause);           // 상세한 에러 설명과 원인 표시 (단락으로)
+    sprintf(body, "%s<hr><em>The Tiny Web server</em></html>\r\n", body); // 수평선과 서버 정보를 이탤릭체로 표시
+
+    /* Print the HTTP response */
+    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg); // HTTP 응답 시작 라인 생성 (예: "HTTP/1.0 404 Not found")
+    Rio_writen(fd, buf, strlen(buf));                     // 응답 시작 라인을 클라이언트에게 전송
+    sprintf(buf, "Content-type: text/html\r\n");          // Content-Type 헤더를 HTML로 설정
+    Rio_writen(fd, buf, strlen(buf));                     // Content-Type 헤더를 클라이언트에게 전송
+    sprintf(buf, "Content-length: %d\r\n\r\n",
+            (int)strlen(body));         // 본문 크기를 바이트 단위로 지정하고 헤더 끝을 나타내는 빈 줄 추가
+    Rio_writen(fd, buf, strlen(buf));   // Content-Length 헤더와 빈 줄을 클라이언트에게 전송
+    Rio_writen(fd, body, strlen(body)); // HTML 본문 내용을 클라이언트에게 전송
+
+    /*
+    여기서 헤더는 한줄씩 보내는 이유는
+    1. 직관성
+    2. MAXLINE은 MAXBUF만큼 크지않다
+    */
+}
+
+void sigchild_handler(int sig)
+{ // 왜 매개변수 안받음?
+    while (waitpid(-1, 0, WNOHANG) > 0)
+    { // 실제로 좀비 프로세스가 정리되었다는 뜻
+    }
+    return;
+}
 void add_cache(char *host, char *path, char *cached_data, size_t c_size)
 {
     // 용량검증
@@ -277,6 +297,8 @@ void remove_cache()
     // 노드가 하나뿐인 경우
     if (!cache_head->next)
     {
+        total_cache_size -= cache_head->content_size;
+        cache_count -= 1;
         free(cache_head->content);
         free(cache_head);
         cache_head = NULL;
@@ -291,43 +313,27 @@ void remove_cache()
         last = last->next;
     }
 
+    total_cache_size -= last->content_size;
+    cache_count -= 1;
     last_prev->next = NULL;
     free(last->content);
     free(last);
 }
+cache_entry_t *find_cache(char *host, char *path)
+{
+    if (!cache_head)
+        return NULL;
+    char key[MAXLINE];
+    snprintf(key, MAXLINE, "%s%s", host, path);
 
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
-{                                    // 문자열로 받기때문에 포인터
-    char buf[MAXLINE], body[MAXBUF]; // HTTP 응답 헤더용 버퍼와 HTML 본문용 버퍼
+    cache_entry_t *cache = cache_head;
+    while (cache != NULL)
+    {
+        if (strcmp(cache->key, key) == 0)
+            return cache;
 
-    /* Build the HTTP response body */
-    sprintf(body, "<html><title>Tiny Error</title>");                     // HTML 문서 시작과 제목 태그 생성
-    sprintf(body, "%s<body bgcolor=\"ffffff\">\r\n", body);               // 흰색 배경의 body 태그 추가
-    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);                // "404: Not found" 같은 에러 정보 표시
-    sprintf(body, "%s<p>%s: %s</p>\r\n", body, longmsg, cause);           // 상세한 에러 설명과 원인 표시 (단락으로)
-    sprintf(body, "%s<hr><em>The Tiny Web server</em></html>\r\n", body); // 수평선과 서버 정보를 이탤릭체로 표시
-
-    /* Print the HTTP response */
-    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg); // HTTP 응답 시작 라인 생성 (예: "HTTP/1.0 404 Not found")
-    Rio_writen(fd, buf, strlen(buf));                     // 응답 시작 라인을 클라이언트에게 전송
-    sprintf(buf, "Content-type: text/html\r\n");          // Content-Type 헤더를 HTML로 설정
-    Rio_writen(fd, buf, strlen(buf));                     // Content-Type 헤더를 클라이언트에게 전송
-    sprintf(buf, "Content-length: %d\r\n\r\n",
-            (int)strlen(body));         // 본문 크기를 바이트 단위로 지정하고 헤더 끝을 나타내는 빈 줄 추가
-    Rio_writen(fd, buf, strlen(buf));   // Content-Length 헤더와 빈 줄을 클라이언트에게 전송
-    Rio_writen(fd, body, strlen(body)); // HTML 본문 내용을 클라이언트에게 전송
-
-    /*
-    여기서 헤더는 한줄씩 보내는 이유는
-    1. 직관성
-    2. MAXLINE은 MAXBUF만큼 크지않다
-    */
-}
-
-void sigchild_handler(int sig)
-{ // 왜 매개변수 안받음?
-    while (waitpid(-1, 0, WNOHANG) > 0)
-    { // 실제로 좀비 프로세스가 정리되었다는 뜻
+        cache = cache->next;
     }
-    return;
+
+    return NULL;
 }
