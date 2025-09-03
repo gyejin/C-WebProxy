@@ -3,6 +3,20 @@
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000 // 약 1MB
 #define MAX_OBJECT_SIZE 102400 // 100kb
+// 캐시타입, 캐시크기가 작고 중간삭제할일이없음, 큐처럼사용할거임
+typedef struct cache_entry
+{
+    char key[MAXLINE];   // 캐시 키
+    char *content;       // 실제 데이터
+    size_t content_size; // 데이터 크기
+    // time_t timestamp;         // 캐시된 시간
+    struct cache_entry *next; // 연결 리스트용
+} cache_entry_t;
+
+static cache_entry_t *cache_head = NULL; // 연결리스트의 헤드
+static cache_entry_t *cache_tail = NULL; // lru 삭제용 꼬리
+static size_t total_cache_size = 0;      // 현재 캐시 전체 크기
+static int cache_count = 0;              // 디버깅용
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr =
@@ -83,6 +97,9 @@ void doit(int clientfd)
 
     read_requesthdrs(&rio);
     parse_uri(uri, host, port, path);
+    // 캐시작업 여기서
+    // 캐시있는지 확인
+    // 없으면 밑 두줄
     proxyfd = connect_server(host, port); // 서버와 프록시연결
     request_and_serve(proxyfd, clientfd, method, path, host, port);
 }
@@ -162,8 +179,10 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
     // 서버에 요청하고
     // 클라이언트로 서브하는 과정
     char buf[MAXLINE];
+    char cached_data[MAX_OBJECT_SIZE];
+    size_t c_size = 0;
     int n;
-
+    // 요청헤더
     sprintf(buf, "%s %s HTTP/1.0\r\n", method, path);
     Rio_writen(proxyfd, buf, strlen(buf));
     sprintf(buf, "Host: %s:%s\r\n", host, port);
@@ -173,12 +192,69 @@ void request_and_serve(int proxyfd, int clientfd, char *method, char *path, char
     Rio_writen(proxyfd, buf, strlen(buf));
     sprintf(buf, "Proxy-Connection: close\r\n\r\n");
     Rio_writen(proxyfd, buf, strlen(buf));
-    // 헤더
 
     while ((n = Rio_readn(proxyfd, buf, MAXLINE)) > 0)
     {
+        if (c_size + n <= MAX_OBJECT_SIZE) // 버퍼오버플로우 조심
+        {
+            memcpy(cached_data + c_size, buf, n);
+            c_size += n;
+        }
+        else
+        {
+            c_size = MAX_OBJECT_SIZE + 1; // 캐시 불가능 표시
+        }
         Rio_writen(clientfd, buf, n);
     }
+
+    if (c_size <= MAX_OBJECT_SIZE)                  // 사이즈가 1MB 미만이면
+        add_cache(host, path, cached_data, c_size); // 캐시추가
+}
+
+void add_cache(char *host, char *path, char *cached_data, size_t c_size)
+{
+    cache_entry_t *new_cache = malloc(sizeof(cache_entry_t)); // 엔트리선언
+    if (!new_cache)                                           // malloc 실패
+        return;
+    snprintf(new_cache->key, MAXLINE, "%s%s", host, path);
+
+    new_cache->content = malloc(c_size);
+    if (!new_cache->content) // malloc 실패
+    {
+        free(new_cache);
+        return;
+    }
+    memcpy(new_cache->content, cached_data, c_size);
+    new_cache->content_size = c_size;
+
+    if (!cache_head)
+    {
+        new_cache->next = NULL;
+        cache_head = new_cache;
+        cache_tail = new_cache;
+    }
+    else
+    {
+        new_cache->next = cache_head;
+        cache_head = new_cache;
+    }
+
+    // if (cache_head == NULL)
+    // {
+    //     cache_head = new_cache;
+    // }
+    // else
+    // {
+    //     cache_entry_t *last_cache = NULL;
+    //     cache_entry_t *head_cache = cache_head;
+    //     while (head_cache != NULL)
+    //     {
+    //         last_cache = head_cache;
+    //         head_cache = head_cache->next;
+    //     }
+
+    //     last_cache->next = new_cache;
+    // }
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
